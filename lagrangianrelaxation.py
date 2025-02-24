@@ -25,7 +25,7 @@ class LagrangianMST:
 
 
     def compute_mst(self, modified_edges):
-        #comment
+
 
         G = nx.Graph()
         G.add_weighted_edges_from(modified_edges)
