@@ -9,6 +9,7 @@ parser = argparse.ArgumentParser(prog='MST Lagrangean B&B', usage='%(prog)s [opt
 parser.add_argument("rule")
 args = parser.parse_args()
 print(args.rule)
+#addcomment
 
 class LagrangianMST:
 
