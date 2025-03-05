@@ -14,7 +14,7 @@ class LagrangianMST:
 
     total_compute_time = 0
 
-    def __init__(self, edges, num_nodes, budget, fixed_edges=None, excluded_edges=None, initial_lambda=1.0, step_size=1.0, max_iter=2, p=0.95):
+    def __init__(self, edges, num_nodes, budget, fixed_edges=None, excluded_edges=None, initial_lambda=1.0, step_size=1.0, max_iter=35, p=0.95):
         start_time = time()
         self.edges = edges
         self.num_nodes = num_nodes

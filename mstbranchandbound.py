@@ -47,7 +47,7 @@ class MSTNode(Node):
         return self.local_lower_bound < other.local_lower_bound
 
     def create_children(self, branched_edge):
-        u, v, _, _ = branched_edge  # Extract (u, v) only
+        u, v = branched_edge[0], branched_edge[1]  # Extract (u, v) only
 
         # Add the branched edge to the set of branched edges
         new_branched_edges = self.branched_edges | {(u, v)}
@@ -89,7 +89,8 @@ class MSTNode(Node):
 
     def get_branching_candidates(self):
         # Exclude edges that have already been branched on
-        candidate_edges = [e for e in self.edges if (e[0], e[1]) not in self.fixed_edges and
+        assert self.mst_edges
+        candidate_edges = [e for e in self.mst_edges if (e[0], e[1]) not in self.fixed_edges and
                           (e[0], e[1]) not in self.excluded_edges and
                           (e[0], e[1]) not in self.branched_edges]
         return candidate_edges if candidate_edges else None

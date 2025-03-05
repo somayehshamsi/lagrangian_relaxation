@@ -97,7 +97,7 @@ class BranchAndBound:
             _, node = heapq.heappop(self.priority_queue)
             self.total_nodes_solved += 1
             node_counter += 1
-            if node_counter <= 10:
+            if node_counter <= 50:
                 print(f"\n--- Node {node_counter} ---")
                 print(f"Fixed edges: {node.fixed_edges}")
                 print(f"Excluded edges: {node.excluded_edges}")
@@ -105,14 +105,12 @@ class BranchAndBound:
                 print(f"Lower bound: {node.local_lower_bound}")
                 print(f"Upper bound: {self.best_upper_bound}")
 
-
-
-            
+           
             # Prune if the node's bound is worse than the best found
             if node.local_lower_bound >= self.best_upper_bound:
                 self.nodes_pruned_lower_bound += 1
                 # print("Pruning node with lower bound:", node.local_lower_bound)
-                if node_counter <= 10:
+                if node_counter <= 50:
                     print("Decision: Prune (lower bound >= best upper bound)")
                 continue
             
@@ -127,7 +125,7 @@ class BranchAndBound:
                     self.best_solution = node
                 self.nodes_pruned_feasible += 1
                 # print(f"Feasible solution found with upper bound: {upper_bound}")
-                if node_counter <= 10:
+                if node_counter <= 50:
                     print(f"Decision: Prune (feasible solution found with upper bound: {upper_bound})")
                 continue
             else:
@@ -136,11 +134,11 @@ class BranchAndBound:
                     candidates = node.get_branching_candidates()
                     if not candidates:
                         # print("No candidates for branching")
-                        if node_counter <= 10:
+                        if node_counter <= 50:
                             print("Decision: Prune (no candidates for branching)")
                         continue
                     
-                    if node_counter <= 10:
+                    if node_counter <= 50:
                         print(f"Branching on candidates: {candidates}")
                     # print("Branching on candidates:", candidates)
                     branching_object = self.branching_rule.get_branching_variable(candidates)
@@ -155,7 +153,7 @@ class BranchAndBound:
                 else:
                     # If infeasible due to connectivity or missing nodes, prune the node
                     self.nodes_pruned_invalid_mst += 1
-                    if node_counter <= 10:
+                    if node_counter <= 50:
                         print(f"Decision: Prune ({reason})")
                     # print(f"Pruning node: {reason}")
                     continue
