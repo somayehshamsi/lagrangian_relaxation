@@ -12,8 +12,8 @@ def parse_arguments():
     # Add the branching rule argument
     parser.add_argument(
         "rule",
-        choices=["random_all, random_mst"],  # Only allow these values
-        help="The branching rule to use (random_all, random_mst)"
+        choices=["random_mst", "random_all"],  # Allow random_mst and random_all
+        help="The branching rule to use (random_mst: pick from MST edges, random_all: pick from all variables)"
     )
 
     # Add a flag for inheriting lambda
@@ -39,7 +39,7 @@ class LagrangianMST:
 
     total_compute_time = 0
 
-    def __init__(self, edges, num_nodes, budget, fixed_edges=None, excluded_edges=None, initial_lambda=1.0, step_size=1.0, max_iter=35, p=0.95):
+    def __init__(self, edges, num_nodes, budget, fixed_edges=None, excluded_edges=None, initial_lambda=1.0, step_size=1.0, max_iter=10, p=0.95):
         start_time = time()
         self.edges = edges
         self.num_nodes = num_nodes
