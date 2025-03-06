@@ -4,12 +4,36 @@ import numpy as np
 import random
 from time import time
 
-# we create the parser for the program
-parser = argparse.ArgumentParser(prog='MST Lagrangean B&B', usage='%(prog)s [options]')
-parser.add_argument("rule")
-args = parser.parse_args()
-print(args.rule)
-#addcomment
+
+def parse_arguments():
+    # Create the parser
+    parser = argparse.ArgumentParser(prog='MST Lagrangean B&B', usage='%(prog)s [options]')
+
+    # Add the branching rule argument
+    parser.add_argument(
+        "rule",
+        choices=["random_all, random_mst"],  # Only allow these values
+        help="The branching rule to use (random_all, random_mst)"
+    )
+
+    # Add a flag for inheriting lambda
+    parser.add_argument(
+        "--inherit-lambda",
+        action="store_true",  # If the flag is provided, this will be True
+        help="Inherit lambda from the parent node (default: False)"
+    )
+
+    # Parse the arguments
+    args = parser.parse_args()
+
+    # Print the selected branching rule and inherit-lambda flag
+    print(f"Using branching rule: {args.rule}")
+    print(f"Inherit lambda: {args.inherit_lambda}")
+
+    return args  # Return the args object
+
+# Call the function to parse arguments and store the result in a global variable
+args = parse_arguments()
 
 class LagrangianMST:
 
