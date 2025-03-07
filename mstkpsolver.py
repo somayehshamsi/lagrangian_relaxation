@@ -2,10 +2,29 @@ import argparse
 from mstkpbranchandbound import MSTNode
 from branchandbound import RandomBranchingRule, BranchAndBound
 from lagrangianrelaxation import LagrangianMST
+from mstkpinstance import MSTKPInstance
 
 def parse_arguments():
     # Create the parser
     parser = argparse.ArgumentParser(prog='MST Lagrangean B&B', usage='%(prog)s [options]')
+
+    # Add the number of nodes of the graph
+    # The default value is 100
+    parser.add_argument(
+        "--num-nodes",
+        type=int,
+        default=100,
+        help="The number of nodes in the graph (default: 100)"
+    )
+
+    # Add the density of the graph
+    # The default value is 0.3
+    parser.add_argument(
+        "--density",
+        type=float,
+        default=0.3,
+        help="The density of the graph (default: 0.3)"
+    )
 
     # Add the branching rule argument
     parser.add_argument(
@@ -43,19 +62,10 @@ if __name__ == "__main__":
     # Call the function to parse arguments and store the result in a global variable
     args = parse_arguments()
     
-    edges = [
-        (0, 1, 10, 3), (0, 2, 15, 4), (0, 3, 20, 5), (1, 4, 25, 6), (1, 5, 30, 3),
-        (2, 6, 12, 2), (2, 7, 18, 4), (3, 8, 22, 5), (3, 9, 28, 7), (4, 10, 35, 8),
-        (4, 11, 40, 9), (5, 12, 38, 7), (5, 13, 45, 5), (6, 14, 20, 6), (7, 8, 14, 3),
-        (7, 9, 26, 5), (8, 10, 19, 4), (9, 11, 33, 6), (10, 12, 50, 9), (11, 13, 27, 7),
-        (12, 14, 32, 6), (13, 14, 24, 5), (1, 6, 18, 4), (2, 5, 17, 3), (3, 7, 21, 5)
-        # ,
-        # (4, 8, 29, 7), (5, 9, 36, 6), (6, 10, 23, 5), (7, 11, 31, 6)
-    ]
-    num_nodes = 15
-    budget = 60
+    # Create an MSTKPInstance object
+    mstkp_instance = MSTKPInstance(args.num_nodes, args.density)
 
-    root_node = MSTNode(edges, num_nodes, budget, initial_lambda=1.0, inherit_lambda=args.inherit_lambda, branching_rule=args.rule, step_size=1.0, inherit_step_size=args.inherit_step_size )
+    root_node = MSTNode(mstkp_instance.edges, mstkp_instance.num_nodes, mstkp_instance.budget, initial_lambda=1.0, inherit_lambda=args.inherit_lambda, branching_rule=args.rule, step_size=1.0, inherit_step_size=args.inherit_step_size )
     branching_rule = RandomBranchingRule()
     bnb_solver = BranchAndBound(branching_rule)
     best_solution, best_upper_bound = bnb_solver.solve(root_node)
