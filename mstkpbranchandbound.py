@@ -1,23 +1,7 @@
-# """
-# Branch-and-bound implementation for the MST problem.
-# """
-# import branchandbound
-
-# class MSTNode(branchandbound.Node):
-#     """
-    
-#     """
-    
-#     def create_children(self, edge: object):
-#         """
-#         Creates and returns two children nodes that partition
-#         the space of solutions according to the given branching object.
-#         """
-#         pass
 import heapq
 import random
 import networkx as nx
-from lagrangianrelaxation import LagrangianMST, args
+from lagrangianrelaxation import LagrangianMST
 from branchandbound import Node, BranchAndBound, RandomBranchingRule
 
 class MSTNode(Node):
@@ -116,55 +100,3 @@ class MSTNode(Node):
         else:
             raise ValueError(f"Unknown branching rule: {self.branching_rule}")
         return candidate_edges if candidate_edges else None
-
-
-if __name__ == "__main__":
-
-    # random.seed(42)  
-    # num_nodes = 15
-    # edges = []
-
-    # # Generate 30 random edges with weights (costs) between 5 and 50, and lengths between 1 and 10
-    # for _ in range(30):
-    #     u, v = random.sample(range(num_nodes), 2)
-    #     weight = random.randint(5, 50)
-    #     length = random.randint(1, 10)
-    #     edges.append((u, v, weight, length))
-
-    
-    edges = [
-        (0, 1, 10, 3), (0, 2, 15, 4), (0, 3, 20, 5), (1, 4, 25, 6), (1, 5, 30, 3),
-        (2, 6, 12, 2), (2, 7, 18, 4), (3, 8, 22, 5), (3, 9, 28, 7), (4, 10, 35, 8),
-        (4, 11, 40, 9), (5, 12, 38, 7), (5, 13, 45, 5), (6, 14, 20, 6), (7, 8, 14, 3),
-        (7, 9, 26, 5), (8, 10, 19, 4), (9, 11, 33, 6), (10, 12, 50, 9), (11, 13, 27, 7),
-        (12, 14, 32, 6), (13, 14, 24, 5), (1, 6, 18, 4), (2, 5, 17, 3), (3, 7, 21, 5)
-        # ,
-        # (4, 8, 29, 7), (5, 9, 36, 6), (6, 10, 23, 5), (7, 11, 31, 6)
-    ]
-    num_nodes = 15
-    budget = 60
-    # edges = [
-    #     (0, 1, 10, 3), (0, 2, 15, 4), (0, 3, 20, 5), (1, 2, 12, 2), (1, 3, 18, 4),
-    #     (1, 4, 25, 6), (2, 3, 14, 3), (2, 5, 17, 3), (3, 4, 22, 5), (3, 5, 28, 7),
-    #     (3, 6, 30, 8), (4, 5, 35, 9), (4, 7, 40, 10), (5, 6, 38, 7), (5, 7, 45, 5),
-    #     (5, 8, 50, 9), (6, 7, 27, 6), (6, 8, 33, 7), (6, 9, 36, 8), (7, 8, 29, 5)
-    # ]
-    # num_nodes = 10  # Number of nodes in the graph
-    # budget = 40     # Maximum allowed MST length
-
-
-    root_node = MSTNode(edges, num_nodes, budget, initial_lambda=1.0, inherit_lambda=args.inherit_lambda, branching_rule=args.rule, step_size=1.0, inherit_step_size=args.inherit_step_size )
-    branching_rule = RandomBranchingRule()
-    bnb_solver = BranchAndBound(branching_rule)
-    best_solution, best_upper_bound = bnb_solver.solve(root_node)
-
-    # Print the optimal MST cost and edges
-    print(f"Optimal MST Cost within Budget: {best_upper_bound}")
-    if best_solution:
-        print("Edges in the Optimal MST:")
-        for edge in best_solution.mst_edges:
-            print(edge)
-    else:
-        print("No feasible solution found.")
-
-    print(f"Lagrangian MST time: {LagrangianMST.total_compute_time:.2f}s")
