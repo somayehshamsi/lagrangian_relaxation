@@ -1,4 +1,5 @@
 import argparse
+import random
 from mstkpbranchandbound import MSTNode
 from branchandbound import RandomBranchingRule, BranchAndBound
 from lagrangianrelaxation import LagrangianMST
@@ -7,6 +8,14 @@ from mstkpinstance import MSTKPInstance
 def parse_arguments():
     # Create the parser
     parser = argparse.ArgumentParser(prog='MST Lagrangean B&B', usage='%(prog)s [options]')
+
+    # Add the seed argument
+    parser.add_argument(
+        "--seed",
+        type=int,
+        default=0,
+        help="Random seed (default: 0)"
+    )
 
     # Add the number of nodes of the graph
     # The default value is 100
@@ -62,6 +71,9 @@ if __name__ == "__main__":
     # Call the function to parse arguments and store the result in a global variable
     args = parse_arguments()
     
+    #initialize the random seed
+    random.seed(args.seed)
+
     # Create an MSTKPInstance object
     mstkp_instance = MSTKPInstance(args.num_nodes, args.density)
 
