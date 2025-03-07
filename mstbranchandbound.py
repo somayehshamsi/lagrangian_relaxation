@@ -15,12 +15,14 @@
 #         """
 #         pass
 import heapq
+import random
 import networkx as nx
-from lagrangianrelaxation import LagrangianMST
+from lagrangianrelaxation import LagrangianMST, args
 from branchandbound import Node, BranchAndBound, RandomBranchingRule
 
 class MSTNode(Node):
-    def __init__(self, edges, num_nodes, budget, fixed_edges=set(), excluded_edges=set(), branched_edges=set()):
+    def __init__(self, edges, num_nodes, budget, fixed_edges=set(), excluded_edges=set(), branched_edges=set(), initial_lambda = 1.0, inherit_lambda = False, branching_rule="random_mst",
+                 step_size=1.0, inherit_step_size=False):
         self.edges = edges
         self.num_nodes = num_nodes
         self.budget = budget
@@ -28,11 +30,18 @@ class MSTNode(Node):
         self.excluded_edges = set(excluded_edges)  # Edges forced to be excluded from the MST
         self.branched_edges = set(branched_edges)  # Edges that have already been branched on
 
+        self.inherit_lambda = inherit_lambda  # Whether to inherit lambda from the parent
+        self.initial_lambda = initial_lambda if inherit_lambda else 1.0  # Reset to 1.0 if not inheriting
+        self.branching_rule = branching_rule  # Branching rule: random_mst or random_all
+        self.step_size = step_size  # Current step size
+        self.inherit_step_size = inherit_step_size  # Whether to inherit step size from the parent
+
+
         # Filter edges: Exclude edges that are in excluded_edges
         filtered_edges = [(u, v, w, l) for (u, v, w, l) in edges if (u, v) not in self.excluded_edges]
 
         # Solve Lagrangian relaxation
-        self.lagrangian_solver = LagrangianMST(filtered_edges, num_nodes, budget, self.fixed_edges, self.excluded_edges)
+        self.lagrangian_solver = LagrangianMST(filtered_edges, num_nodes, budget, self.fixed_edges, self.excluded_edges, initial_lambda=self.initial_lambda, step_size=self.step_size)
         self.local_lower_bound, _ = self.lagrangian_solver.solve()
         self.actual_cost, _ = self.lagrangian_solver.compute_real_weight_length()
         self.local_lower_bound = self.actual_cost
@@ -52,11 +61,16 @@ class MSTNode(Node):
         # Add the branched edge to the set of branched edges
         new_branched_edges = self.branched_edges | {(u, v)}
 
+        # Get the current lambda value from the Lagrangian solver
+        current_lambda = self.lagrangian_solver.lmbda if self.inherit_lambda else 1.0
+        current_step_size = self.lagrangian_solver.step_size if self.inherit_step_size else 1.0
+
+
         # Create child nodes
         fixed_child = MSTNode(self.edges, self.num_nodes, self.budget,
-                            self.fixed_edges | {(u, v)}, self.excluded_edges, new_branched_edges)
+                            self.fixed_edges | {(u, v)}, self.excluded_edges, new_branched_edges, initial_lambda=current_lambda, inherit_lambda=self.inherit_lambda, branching_rule=self.branching_rule, step_size=current_step_size, inherit_step_size=self.inherit_step_size )
         excluded_child = MSTNode(self.edges, self.num_nodes, self.budget,
-                                self.fixed_edges, self.excluded_edges | {(u, v)}, new_branched_edges)
+                                self.fixed_edges, self.excluded_edges | {(u, v)}, new_branched_edges, initial_lambda=current_lambda, inherit_lambda=self.inherit_lambda, branching_rule=self.branching_rule, step_size=current_step_size, inherit_step_size=self.inherit_step_size)
         return [fixed_child, excluded_child]
 
     def is_feasible(self):
@@ -88,15 +102,36 @@ class MSTNode(Node):
         return real_weight
 
     def get_branching_candidates(self):
-        # Exclude edges that have already been branched on
-        assert self.mst_edges
-        candidate_edges = [e for e in self.mst_edges if (e[0], e[1]) not in self.fixed_edges and
-                          (e[0], e[1]) not in self.excluded_edges and
-                          (e[0], e[1]) not in self.branched_edges]
+        if self.branching_rule == "random_mst":
+            # Branch only from edges in the MST
+            assert self.mst_edges
+            candidate_edges = [e for e in self.mst_edges if (e[0], e[1]) not in self.fixed_edges and
+                              (e[0], e[1]) not in self.excluded_edges and
+                              (e[0], e[1]) not in self.branched_edges]
+        elif self.branching_rule == "random_all":
+            # Branch from all candidate edges (not just MST edges)
+            candidate_edges = [(u, v) for (u, v, w, l) in self.edges if (u, v) not in self.fixed_edges and
+                              (u, v) not in self.excluded_edges and
+                              (u, v) not in self.branched_edges]
+        else:
+            raise ValueError(f"Unknown branching rule: {self.branching_rule}")
         return candidate_edges if candidate_edges else None
 
 
 if __name__ == "__main__":
+
+    # random.seed(42)  
+    # num_nodes = 15
+    # edges = []
+
+    # # Generate 30 random edges with weights (costs) between 5 and 50, and lengths between 1 and 10
+    # for _ in range(30):
+    #     u, v = random.sample(range(num_nodes), 2)
+    #     weight = random.randint(5, 50)
+    #     length = random.randint(1, 10)
+    #     edges.append((u, v, weight, length))
+
+    
     edges = [
         (0, 1, 10, 3), (0, 2, 15, 4), (0, 3, 20, 5), (1, 4, 25, 6), (1, 5, 30, 3),
         (2, 6, 12, 2), (2, 7, 18, 4), (3, 8, 22, 5), (3, 9, 28, 7), (4, 10, 35, 8),
@@ -118,7 +153,7 @@ if __name__ == "__main__":
     # budget = 40     # Maximum allowed MST length
 
 
-    root_node = MSTNode(edges, num_nodes, budget)
+    root_node = MSTNode(edges, num_nodes, budget, initial_lambda=1.0, inherit_lambda=args.inherit_lambda, branching_rule=args.rule, step_size=1.0, inherit_step_size=args.inherit_step_size )
     branching_rule = RandomBranchingRule()
     bnb_solver = BranchAndBound(branching_rule)
     best_solution, best_upper_bound = bnb_solver.solve(root_node)
