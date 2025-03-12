@@ -7,7 +7,7 @@ class LagrangianMST:
 
     total_compute_time = 0
 
-    def __init__(self, edges, num_nodes, budget, fixed_edges=None, excluded_edges=None, initial_lambda=1.0, step_size=1.0, max_iter=10, p=0.95):
+    def __init__(self, edges, num_nodes, budget, fixed_edges=None, excluded_edges=None, initial_lambda=1.0, step_size=1.0, max_iter=50, p=0.95):
         start_time = time()
         self.edges = edges
         self.num_nodes = num_nodes
@@ -110,7 +110,7 @@ class LagrangianMST:
             self.last_mst_edges = mst_edges  
 
             # Compute Lagrangian lower bound
-            lagrangian_bound = mst_cost - self.lmbda * (self.budget - mst_length)
+            lagrangian_bound = mst_cost - self.lmbda * (self.budget)
             self.best_lower_bound = max(self.best_lower_bound, lagrangian_bound)
 
             # Update the best upper bound if MST is feasible
@@ -122,8 +122,8 @@ class LagrangianMST:
 
             # Check for convergence
             duality_gap = self.best_upper_bound - self.best_lower_bound
-            if abs(subgradient) < 1e-5 or duality_gap < 1e-3:
-                # print("Converged!")
+            if abs(subgradient) < 1e-5 and abs(duality_gap) < 1e-5:
+                print("Converged!")
                 break
 
             # Adaptive step size update using geometric decay
@@ -132,6 +132,7 @@ class LagrangianMST:
             
         end_time = time()
         LagrangianMST.total_compute_time += end_time - start_time
+
         return self.best_lower_bound, self.best_upper_bound
 
 
