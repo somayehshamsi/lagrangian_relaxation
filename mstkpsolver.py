@@ -38,7 +38,7 @@ def parse_arguments():
     # Add the branching rule argument
     parser.add_argument(
         "rule",
-        choices=["random_mst", "random_all"],  # Allow random_mst and random_all
+        choices=["random_mst", "random_all", "most_violated", "critical_edge"],  # Allow random_mst and random_all
         help="The branching rule to use (random_mst: pick from MST edges, random_all: pick from all variables)"
     )
 
@@ -76,6 +76,9 @@ if __name__ == "__main__":
 
     # Create an MSTKPInstance object
     mstkp_instance = MSTKPInstance(args.num_nodes, args.density)
+
+    # Print all edges with their weight and length
+    mstkp_instance.print_all_edges()
 
     root_node = MSTNode(mstkp_instance.edges, mstkp_instance.num_nodes, mstkp_instance.budget, initial_lambda=1.0, inherit_lambda=args.inherit_lambda, branching_rule=args.rule, step_size=1.0, inherit_step_size=args.inherit_step_size )
     branching_rule = RandomBranchingRule()
