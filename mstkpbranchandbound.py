@@ -28,7 +28,7 @@ class MSTNode(Node):
         self.lagrangian_solver = LagrangianMST(filtered_edges, num_nodes, budget, self.fixed_edges, self.excluded_edges, initial_lambda=self.initial_lambda, step_size=self.step_size)
         self.local_lower_bound, _ = self.lagrangian_solver.solve()
         self.actual_cost, _ = self.lagrangian_solver.compute_real_weight_length()
-        self.local_lower_bound = self.actual_cost
+        # self.local_lower_bound = self.actual_cost
 
         # Store the MST edges from the Lagrangian solver
         self.mst_edges = self.lagrangian_solver.last_mst_edges
@@ -56,6 +56,7 @@ class MSTNode(Node):
         excluded_child = MSTNode(self.edges, self.num_nodes, self.budget,
                                 self.fixed_edges, self.excluded_edges | {(u, v)}, new_branched_edges, initial_lambda=current_lambda, inherit_lambda=self.inherit_lambda, branching_rule=self.branching_rule, step_size=current_step_size, inherit_step_size=self.inherit_step_size)
         return [fixed_child, excluded_child]
+    
 
     def is_feasible(self):
         # Compute the real weight and length of the MST
@@ -86,7 +87,15 @@ class MSTNode(Node):
         return real_weight
 
     def get_branching_candidates(self):
-        if self.branching_rule == "random_mst":
+
+        if self.branching_rule == "most_violated":
+            # Branch on the edge with the highest weight-to-length ratio
+            candidate_edges = sorted(
+                [(u, v, w, l) for u, v, w, l in self.edges if (u, v) not in self.fixed_edges and (u, v) not in self.excluded_edges],
+                key=lambda x: x[2] / x[3],  # Weight-to-length ratio
+                reverse=True,
+            )
+        elif self.branching_rule == "random_mst":
             # Branch only from edges in the MST
             assert self.mst_edges
             candidate_edges = [e for e in self.mst_edges if (e[0], e[1]) not in self.fixed_edges and
