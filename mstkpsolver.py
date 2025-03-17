@@ -38,8 +38,8 @@ def parse_arguments():
     # Add the branching rule argument
     parser.add_argument(
         "rule",
-        choices=["random_mst", "random_all", "most_violated", "critical_edge"],  # Allow random_mst and random_all
-        help="The branching rule to use (random_mst: pick from MST edges, random_all: pick from all variables)"
+        choices=["random_mst", "random_all", "most_violated", "critical_edge", "most_fractional", "strong_branching"],  # Add "strong_branching"
+        help="The branching rule to use (random_mst: pick from MST edges, random_all: pick from all variables, most_fractional: pick the most fractional edge, strong_branching: use strong branching)"
     )
 
     # Add a flag for inheriting lambda
