@@ -22,6 +22,8 @@ class LagrangianMST:
         self.best_upper_bound = float('inf')
         self.last_mst_edges = []
         end_time = time()
+        self.primal_solutions = []  # Store primal solutions (MSTs)
+        self.step_sizes = []  # Store step sizes (λₖ)
         LagrangianMST.total_compute_time += end_time - start_time
 
 
@@ -107,8 +109,16 @@ class LagrangianMST:
 
             # Compute MST with modified costs
             mst_cost, mst_length, mst_edges = self.compute_mst(modified_edges)
-            self.last_mst_edges = mst_edges  
+            self.last_mst_edges = mst_edges 
 
+            # Store primal solution and step size
+            self.primal_solutions.append(mst_edges)
+            self.step_sizes.append(self.step_size) 
+
+            #             # Debugging output
+            # print(f"Iteration {iter_num}: Step Size = {self.step_size}, Lambda = {self.lmbda}")
+            # print(f"MST Edges: {mst_edges}")
+                        
             # Compute Lagrangian lower bound
             lagrangian_bound = mst_cost - self.lmbda * (self.budget)
             self.best_lower_bound = max(self.best_lower_bound, lagrangian_bound)
@@ -134,7 +144,28 @@ class LagrangianMST:
         LagrangianMST.total_compute_time += end_time - start_time
 
         return self.best_lower_bound, self.best_upper_bound
+    
+    def compute_shor_primal_solution(self):
+        """
+        Compute the weighted average of all primal solutions using Shor's approach.
+        """
+        if not self.primal_solutions:
+            return None
 
+        # Compute the total weight (sum of step sizes)
+        total_weight = sum(self.step_sizes)
+
+        # Compute the weighted average of the primal solutions
+        weighted_mst = {}
+        for mst_edges, step_size in zip(self.primal_solutions, self.step_sizes):
+            for u, v in mst_edges:
+                if (u, v) in weighted_mst:
+                    weighted_mst[(u, v)] += step_size / total_weight
+                else:
+                    weighted_mst[(u, v)] = step_size / total_weight
+
+        # Return the weighted average MST
+        return weighted_mst
 
     def compute_real_weight_length(self):
         """
