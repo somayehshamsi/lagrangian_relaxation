@@ -1,4 +1,4 @@
-import argparse
+import sys, argparse
 import random
 from mstkpbranchandbound import MSTNode
 from branchandbound import RandomBranchingRule, BranchAndBound
@@ -36,6 +36,7 @@ def parse_arguments():
     )
 
     # Add the branching rule argument
+    # The default is strong branching.
     parser.add_argument(
         "rule",
         choices=["random_mst", "random_all", "most_violated", "critical_edge", "most_fractional", "strong_branching"],  # Add "strong_branching"
@@ -67,6 +68,11 @@ def parse_arguments():
 
 
 if __name__ == "__main__":
+
+    # For debugging purposes, we set the branching rule to strong branching if it is not given as an argument
+    # This is useful when we run the script from an IDE
+    if len(sys.argv) == 1:
+         sys.argv.append("strong_branching")
 
     # Call the function to parse arguments and store the result in a global variable
     args = parse_arguments()
