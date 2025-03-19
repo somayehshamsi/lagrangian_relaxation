@@ -5,8 +5,8 @@ from lagrangianrelaxation import LagrangianMST
 from branchandbound import Node, BranchAndBound, RandomBranchingRule
 
 class MSTNode(Node):
-    def __init__(self, edges, num_nodes, budget, fixed_edges=set(), excluded_edges=set(), branched_edges=set(), initial_lambda = 1.0, inherit_lambda = False, branching_rule="random_mst",
-                 step_size=1.0, inherit_step_size=False):
+    def __init__(self, edges, num_nodes, budget, fixed_edges=set(), excluded_edges=set(), branched_edges=set(), initial_lambda = 0.1, inherit_lambda = False, branching_rule="random_mst",
+                 step_size=0.005, inherit_step_size=False):
         self.edges = edges
         self.num_nodes = num_nodes
         self.budget = budget
@@ -15,7 +15,7 @@ class MSTNode(Node):
         self.branched_edges = set(branched_edges)  # Edges that have already been branched on
 
         self.inherit_lambda = inherit_lambda  # Whether to inherit lambda from the parent
-        self.initial_lambda = initial_lambda if inherit_lambda else 1.0  # Reset to 1.0 if not inheriting
+        self.initial_lambda = initial_lambda if inherit_lambda else 0.1  # Reset to 1.0 if not inheriting
         self.branching_rule = branching_rule  # Branching rule: random_mst or random_all
         self.step_size = step_size  # Current step size
         self.inherit_step_size = inherit_step_size  # Whether to inherit step size from the parent
@@ -34,7 +34,7 @@ class MSTNode(Node):
         self.mst_edges = self.lagrangian_solver.last_mst_edges
 
         # Compute and store modified edge weights
-        self.modified_weights = self.compute_modified_weights()
+        # self.modified_weights = self.compute_modified_weights()
 
         # Initialize the Node superclass
         super().__init__(self.local_lower_bound)
@@ -49,8 +49,8 @@ class MSTNode(Node):
         new_branched_edges = self.branched_edges | {(u, v)}
 
         # Get the current lambda value from the Lagrangian solver
-        current_lambda = self.lagrangian_solver.lmbda if self.inherit_lambda else 1.0
-        current_step_size = self.lagrangian_solver.step_size if self.inherit_step_size else 1.0
+        current_lambda = self.lagrangian_solver.lmbda if self.inherit_lambda else 0.1
+        current_step_size = self.lagrangian_solver.step_size if self.inherit_step_size else 0.005
 
 
         # Create child nodes
@@ -91,10 +91,15 @@ class MSTNode(Node):
 
     def get_branching_candidates(self):
         if self.branching_rule == "strong_branching":
+            candidate_edges = [e for e in self.mst_edges if (e[0], e[1]) not in self.fixed_edges and
+                          (e[0], e[1]) not in self.excluded_edges and
+                          (e[0], e[1]) not in self.branched_edges]
             # Get all candidate edges that are not fixed or excluded
-            candidate_edges = [(u, v) for (u, v, w, l) in self.edges if (u, v) not in self.fixed_edges and
-                            (u, v) not in self.excluded_edges and
-                            (u, v) not in self.branched_edges]
+            # candidate_edges = [(u, v) for (u, v, w, l) in self.edges if (u, v) not in self.fixed_edges and
+            #                 (u, v) not in self.excluded_edges and
+            #                 (u, v) not in self.branched_edges]
+
+
 
             if not candidate_edges:
                 return None
@@ -152,15 +157,15 @@ class MSTNode(Node):
             raise ValueError(f"Unknown branching rule: {self.branching_rule}")
         return candidate_edges if candidate_edges else None
     
-    def compute_modified_weights(self):
-        """
-        Compute and store the modified edge weights (w + lambda * l) for all edges.
-        """
-        modified_weights = {}
-        for u, v, w, l in self.edges:
-            modified_weights[(u, v)] = w 
-            modified_weights[(v, u)] = w  # Store both directions
-        return modified_weights
+    # def compute_modified_weights(self):
+    #     """
+    #     Compute and store the modified edge weights (w + lambda * l) for all edges.
+    #     """
+    #     modified_weights = {}
+    #     for u, v, w, l in self.edges:
+    #         modified_weights[(u, v)] = w 
+    #         modified_weights[(v, u)] = w  # Store both directions
+    #     return modified_weights
     
     def get_modified_weight(self, edge):
         """
@@ -170,7 +175,7 @@ class MSTNode(Node):
         # Find the original weight and length of the edge
         w, l = next((w, l) for x, y, w, l in self.edges if (x, y) == (u, v) or (y, x) == (u, v))
         # Return the modified weight: w + lambda * l
-        return w + self.lagrangian_solver.lmbda * l
+        return w + self.lagrangian_solver.best_lambda * l
     
     def calculate_strong_branching_score(self, edge):
         """
@@ -220,15 +225,14 @@ class MSTNode(Node):
 
         # Create a copy of the MST and add the fixed edge to find the cycle
         mst_graph = nx.Graph(self.mst_edges)
-        print("Edges in the MST graph:")
-        for edge in mst_graph.edges():
-            print(edge)
+
 
         total_weight = 0.0
         for edge in mst_graph.edges():
             total_weight += self.get_modified_weight(edge)
-        print(f"Total weight of the MST based on modified weights: {total_weight:.5f}")
-        print(f"budget{self.lagrangian_solver.lmbda * self.budget}")
+        # print(f"Total weight of the MST based on modified weights: {total_weight:.5f}")
+        # print("lambda", self.lagrangian_solver.lmbda)
+        # print(f"budget{self.lagrangian_solver.lmbda * self.budget}")
 
         mst_graph.add_edge(u, v)
 
@@ -288,7 +292,14 @@ class MSTNode(Node):
 
         # Create a copy of the MST and remove the excluded edge
         mst_graph = nx.Graph(self.mst_edges)
+        total_weight = 0.0
+        for edge in mst_graph.edges():
+            total_weight += self.get_modified_weight(edge)
+        print(f"Total weight of the MST based on modified weights: {total_weight:.5f}")
+        print("lambda", self.lagrangian_solver.lmbda)
+        print(f"budget{self.lagrangian_solver.lmbda * self.budget}")
         mst_graph.remove_edge(u, v)
+
 
         # Find the two disconnected components
         components = list(nx.connected_components(mst_graph))
@@ -300,6 +311,10 @@ class MSTNode(Node):
         cheapest_edge = None
         min_weight = float('inf')
         for x, y, w, l in self.edges:
+
+            # Ensure the edge is not the excluded edge
+            if (x, y) == (u, v) or (y, x) == (u, v):
+                continue
             # Check if the edge connects the two components
             if (x in components[0] and y in components[1]) or (x in components[1] and y in components[0]):
                 # Ensure the edge is not excluded by the parent nodes
