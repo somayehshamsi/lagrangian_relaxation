@@ -7,7 +7,7 @@ class LagrangianMST:
 
     total_compute_time = 0
 
-    def __init__(self, edges, num_nodes, budget, fixed_edges=None, excluded_edges=None, initial_lambda=1.0, step_size=1.0, max_iter=50, p=0.95):
+    def __init__(self, edges, num_nodes, budget, fixed_edges=None, excluded_edges=None, initial_lambda=0.1, step_size=0.005, max_iter=50, p=0.95):
         start_time = time()
         self.edges = edges
         self.num_nodes = num_nodes
@@ -24,6 +24,7 @@ class LagrangianMST:
         end_time = time()
         self.primal_solutions = []  # Store primal solutions (MSTs)
         self.step_sizes = []  # Store step sizes (λₖ)
+        self.best_lambda = initial_lambda
         LagrangianMST.total_compute_time += end_time - start_time
 
 
@@ -121,7 +122,10 @@ class LagrangianMST:
                         
             # Compute Lagrangian lower bound
             lagrangian_bound = mst_cost - self.lmbda * (self.budget)
-            self.best_lower_bound = max(self.best_lower_bound, lagrangian_bound)
+            # self.best_lower_bound = max(self.best_lower_bound, lagrangian_bound)
+            if lagrangian_bound > self.best_lower_bound:
+                self.best_lower_bound = lagrangian_bound
+                self.best_lambda = self.lmbda  # Update the best lambda value
 
             # Update the best upper bound if MST is feasible
             if mst_length <= self.budget and nx.is_connected(nx.Graph(mst_edges)):
@@ -138,7 +142,9 @@ class LagrangianMST:
 
             # Adaptive step size update using geometric decay
             self.step_size *= self.p
-            self.lmbda = max(0, self.lmbda + self.step_size * subgradient)
+            # self.lmbda = max(0, self.lmbda + self.step_size * subgradient)
+            self.lmbda =  self.lmbda + self.step_size * subgradient
+
             
         end_time = time()
         LagrangianMST.total_compute_time += end_time - start_time
