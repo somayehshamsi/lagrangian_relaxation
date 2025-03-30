@@ -25,6 +25,8 @@ class LagrangianMST:
         self.primal_solutions = []  # Store primal solutions (MSTs)
         self.step_sizes = []  # Store step sizes (λₖ)
         self.best_lambda = initial_lambda
+        self.best_mst_edges = None  # Track the MST edges that give the best lower bound
+        self.best_cost = 0
         LagrangianMST.total_compute_time += end_time - start_time
 
 
@@ -112,8 +114,12 @@ class LagrangianMST:
             mst_cost, mst_length, mst_edges = self.compute_mst(modified_edges)
             self.last_mst_edges = mst_edges 
 
+                    # Label feasibility (store as tuple: (mst_edges, is_feasible))
+            is_feasible = mst_length <= self.budget
+            self.primal_solutions.append((mst_edges, is_feasible))
+            
             # Store primal solution and step size
-            self.primal_solutions.append(mst_edges)
+            # self.primal_solutions.append(mst_edges)
             self.step_sizes.append(self.step_size) 
 
             #             # Debugging output
@@ -126,6 +132,7 @@ class LagrangianMST:
             if lagrangian_bound > self.best_lower_bound:
                 self.best_lower_bound = lagrangian_bound
                 self.best_lambda = self.lmbda  # Update the best lambda value
+                self.best_mst_edges = mst_edges
 
             # Update the best upper bound if MST is feasible
             if mst_length <= self.budget and nx.is_connected(nx.Graph(mst_edges)):
@@ -144,7 +151,6 @@ class LagrangianMST:
             self.step_size *= self.p
             # self.lmbda = max(0, self.lmbda + self.step_size * subgradient)
             self.lmbda =  self.lmbda + self.step_size * subgradient
-
             
         end_time = time()
         LagrangianMST.total_compute_time += end_time - start_time
@@ -153,25 +159,82 @@ class LagrangianMST:
     
     def compute_shor_primal_solution(self):
         """
-        Compute the weighted average of all primal solutions using Shor's approach.
+        Compute the Shor primal solution as a weighted average of all MSTs found during optimization.
+        Returns a dictionary mapping edges to their average weights.
         """
         if not self.primal_solutions:
             return None
-
-        # Compute the total weight (sum of step sizes)
-        total_weight = sum(self.step_sizes)
-
-        # Compute the weighted average of the primal solutions
-        weighted_mst = {}
-        for mst_edges, step_size in zip(self.primal_solutions, self.step_sizes):
-            for u, v in mst_edges:
-                if (u, v) in weighted_mst:
-                    weighted_mst[(u, v)] += step_size / total_weight
+            
+        # Initialize edge weights
+        edge_weights = {}
+        total_weight = 0.0
+        
+        # Sum up all weights
+        for i, mst_edges in enumerate(self.primal_solutions):
+            weight = self.step_sizes[i]  # Use step size as weight (λₖ)
+            total_weight += weight
+            for edge in mst_edges:
+                if edge in edge_weights:
+                    edge_weights[edge] += weight
                 else:
-                    weighted_mst[(u, v)] = step_size / total_weight
+                    edge_weights[edge] = weight
+        
+        # Normalize by total weight
+        if total_weight > 0:
+            for edge in edge_weights:
+                edge_weights[edge] /= total_weight
+        
+        return edge_weights
 
-        # Return the weighted average MST
-        return weighted_mst
+
+    def compute_dantzig_wolfe_solution(self):
+        """Compute the LP-optimal solution via convex combination of two MSTs"""
+        if len(self.primal_solutions) < 2:
+            return None
+
+        # Get most recent feasible/infeasible pair
+        feasible = [mst for mst, feasible in self.primal_solutions if feasible]
+        infeasible = [mst for mst, feasible in self.primal_solutions if not feasible]
+        
+        if not feasible or not infeasible:
+            return None
+
+        mst_feas = feasible[-1]
+        mst_infeas = infeasible[-1]
+
+        # Calculate total lengths
+        def get_length(mst):
+            return sum(l for u,v,w,l in self.edges 
+                    if (u,v) in mst or (v,u) in mst)
+
+        len_feas = get_length(mst_feas)
+        len_infeas = get_length(mst_infeas)
+
+        # Compute convex combination weight α
+        try:
+            α = (self.budget - len_feas) / (len_infeas - len_feas)
+            α = max(0, min(1, α))  # Clamp to [0,1]
+        except ZeroDivisionError:
+            return None
+
+        # Build combined solution
+        combined = {}
+        all_edges = set(mst_feas) | set(mst_infeas)
+        
+        for e in all_edges:
+            in_feas = e in mst_feas or (e[1],e[0]) in mst_feas
+            in_infeas = e in mst_infeas or (e[1],e[0]) in mst_infeas
+            
+            if in_feas and in_infeas:
+                combined[e] = 1.0
+            elif in_infeas:
+                combined[e] = α
+            elif in_feas:
+                combined[e] = 1 - α
+            else:
+                combined[e] = 0.0
+
+        return combined
 
     def compute_real_weight_length(self):
         """
