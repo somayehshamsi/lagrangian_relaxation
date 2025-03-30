@@ -70,7 +70,7 @@ class Node(abc.ABC):
         Computes an upper bound for the node.
         """
         pass
-
+MEANINGFUL_PENALTY = 1000  # Penalty for non-meaningful branches
 class BranchAndBound:
     """
     An implementation of the Branch-and-Bound
@@ -95,11 +95,13 @@ class BranchAndBound:
         node_counter = 0
 
         while self.priority_queue:
+            # _, node = heapq.heappop(self.priority_queue)
             _, node = heapq.heappop(self.priority_queue)
+
             self.total_nodes_solved += 1
             node_counter += 1
             
-            if node_counter <= 10:
+            if node_counter <= 100:
                 print(f"\n--- Node {node_counter} ---")
                 print(f"Fixed edges: {node.fixed_edges}")
                 print(f"Excluded edges: {node.excluded_edges}")
@@ -110,7 +112,7 @@ class BranchAndBound:
             # Prune if the node's bound is worse than the best found
             if node.local_lower_bound >= self.best_upper_bound:
                 self.nodes_pruned_lower_bound += 1
-                if node_counter <= 10:
+                if node_counter <= 100:
                     print("Decision: Prune (lower bound >= best upper bound)")
                 continue
 
@@ -131,7 +133,7 @@ class BranchAndBound:
                     # If lower bound is less, continue branching like we do for "MST length exceeds budget"
                     candidates = node.get_branching_candidates()
                     if not candidates:
-                        if node_counter <= 10:
+                        if node_counter <= 100:
                             print("Decision: Prune (no candidates for branching)")
                         continue
                     branching_object = self.branching_rule.get_branching_variable(candidates)
@@ -140,11 +142,11 @@ class BranchAndBound:
                     for child in children:
                         if child.local_lower_bound < self.best_upper_bound:
                             heapq.heappush(self.priority_queue, (child.local_lower_bound, child))
-                    if node_counter <= 10:
+                    if node_counter <= 100:
                         print(f"Decision: Continue branching (lower bound < upper bound, children added to queue)")
 
                 else:
-                    if node_counter <= 10:
+                    if node_counter <= 100:
                         print(f"Decision: Prune (feasible solution found with upper bound: {upper_bound})")
                         self.nodes_pruned_feasible += 1
                         continue
@@ -154,7 +156,7 @@ class BranchAndBound:
                 if reason == "MST length exceeds budget":
                     candidates = node.get_branching_candidates()
                     if not candidates:
-                        if node_counter <= 10:
+                        if node_counter <= 100:
                             print("Decision: Prune (no candidates for branching)")
                         continue
                     branching_object = self.branching_rule.get_branching_variable(candidates)
@@ -163,12 +165,12 @@ class BranchAndBound:
                     for child in children:
                         if child.local_lower_bound < self.best_upper_bound:
                             heapq.heappush(self.priority_queue, (child.local_lower_bound, child))
-                    if node_counter <= 10:
+                    if node_counter <= 100:
                         print(f"Decision: Branch (child added to queue with lower bound: {child.local_lower_bound})")
                 else:
                     # If infeasible due to connectivity or missing nodes, prune the node
                     self.nodes_pruned_invalid_mst += 1
-                    if node_counter <= 10:
+                    if node_counter <= 100:
                         print(f"Decision: Prune ({reason})")
 
                     continue
