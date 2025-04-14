@@ -100,7 +100,20 @@ class BranchAndBound:
 
             self.total_nodes_solved += 1
             node_counter += 1
-            
+
+
+                        # Generate cuts from best_mst_edges at the node level
+            if (hasattr(node, 'use_cover_cuts') and node.use_cover_cuts):
+                if node.lagrangian_solver.best_mst_edges:
+                    new_cuts = node.lagrangian_solver.generate_cover_cuts(
+                        node.lagrangian_solver.best_mst_edges
+                    )
+                    for cut in new_cuts:
+                        if not any(cut == existing for existing in node.lagrangian_solver.cover_cuts):
+                            cut_idx = len(node.lagrangian_solver.cover_cuts)
+                            node.lagrangian_solver.cover_cuts.append(cut)
+                            node.lagrangian_solver.cover_cut_multipliers[cut_idx] = 1.0
+                
             if node_counter <= 100:
                 print(f"\n--- Node {node_counter} ---")
                 print(f"Fixed edges: {node.fixed_edges}")

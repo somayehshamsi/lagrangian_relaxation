@@ -57,6 +57,16 @@ def parse_arguments():
         help="Inherit step size from the parent node (default: False)"
     )
 
+
+    # New arguments for cover cuts
+    parser.add_argument("--cover-cuts", action="store_true", 
+                       help="Enable cover cuts generation (default: False)")
+    parser.add_argument("--cut-frequency", type=int, default=5,
+                       help="Frequency of cut generation in Lagrangian iterations (default: 5)")
+    parser.add_argument("--node-cut-frequency", type=int, default=10,
+                       help="Frequency of cut generation in B&B nodes (default: 10)")
+   
+
     # Parse the arguments
     args = parser.parse_args()
 
@@ -86,7 +96,14 @@ if __name__ == "__main__":
     # Print all edges with their weight and length
     # mstkp_instance.print_all_edges()
 
-    root_node = MSTNode(mstkp_instance.edges, mstkp_instance.num_nodes, mstkp_instance.budget, initial_lambda=0.1, inherit_lambda=args.inherit_lambda, branching_rule=args.rule, step_size=0.005, inherit_step_size=args.inherit_step_size )
+    root_node = MSTNode(mstkp_instance.edges, mstkp_instance.num_nodes, mstkp_instance.budget, initial_lambda=0.1, inherit_lambda=args.inherit_lambda, branching_rule=args.rule, step_size=0.005, inherit_step_size=args.inherit_step_size,
+        use_cover_cuts=args.cover_cuts, 
+        cut_frequency=args.cut_frequency,
+        node_cut_frequency=10,
+             parent_cover_cuts=None,  # Explicitly None for root node
+    parent_cover_multipliers=None)  # Explicitly None for root node )
+    
+
     branching_rule = RandomBranchingRule()
     bnb_solver = BranchAndBound(branching_rule)
     best_solution, best_upper_bound = bnb_solver.solve(root_node)

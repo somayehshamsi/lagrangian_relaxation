@@ -6,7 +6,8 @@ from branchandbound import Node, BranchAndBound, RandomBranchingRule
 
 class MSTNode(Node):
     def __init__(self, edges, num_nodes, budget, fixed_edges=set(), excluded_edges=set(), branched_edges=set(), initial_lambda = 0.1, inherit_lambda = False, branching_rule="random_mst",
-                 step_size=0.005, inherit_step_size=False):
+                 step_size=0.005, inherit_step_size=False, use_cover_cuts=False, cut_frequency=5, node_cut_frequency=10,
+                 parent_cover_cuts=None, parent_cover_multipliers=None):
         self.edges = edges
         self.num_nodes = num_nodes
         self.budget = budget
@@ -21,16 +22,53 @@ class MSTNode(Node):
         self.inherit_step_size = inherit_step_size  # Whether to inherit step size from the parent
 
 
+
+        # Store cut parameters
+        self.use_cover_cuts = use_cover_cuts
+        self.cut_frequency = cut_frequency
+        self.node_cut_frequency = node_cut_frequency
+
+
         # Filter edges: Exclude edges that are in excluded_edges
         filtered_edges = [(u, v, w, l) for (u, v, w, l) in edges if (u, v) not in self.excluded_edges]
 
         # Solve Lagrangian relaxation
-        self.lagrangian_solver = LagrangianMST(filtered_edges, num_nodes, budget, self.fixed_edges, self.excluded_edges, initial_lambda=self.initial_lambda, step_size=self.step_size)
-        self.local_lower_bound, _ = self.lagrangian_solver.solve()
+        self.lagrangian_solver = LagrangianMST(filtered_edges, num_nodes, budget, self.fixed_edges, self.excluded_edges, initial_lambda=self.initial_lambda, step_size=self.step_size, 
+            max_iter=50, p=0.95,
+            use_cover_cuts=self.use_cover_cuts,
+            cut_frequency=self.cut_frequency)
+        
+        self.active_cuts = []
+        self.cut_multipliers = {}
+        if parent_cover_cuts and parent_cover_multipliers:
+            for cut_idx, cut in enumerate(parent_cover_cuts):
+                # Only keep cuts that don't conflict with current branching
+                if not any((e in self.excluded_edges) or (e in self.fixed_edges) for e in cut):
+                    new_idx = len(self.active_cuts)
+                    self.active_cuts.append(cut)
+                    # Reduce multiplier for inherited cuts
+                    self.cut_multipliers[new_idx] = parent_cover_multipliers[cut_idx] * 0.7
+
+        # Solve the node
+        self.local_lower_bound, self.best_upper_bound, self.new_cuts = \
+            self.lagrangian_solver.solve(
+                inherited_cuts=self.active_cuts,
+                inherited_multipliers=self.cut_multipliers
+            )
+
+        # Solve the node
+        self.local_lower_bound, self.best_upper_bound, self.new_cuts = \
+            self.lagrangian_solver.solve(
+                inherited_cuts=self.active_cuts,
+                inherited_multipliers=self.cut_multipliers
+            )
+        
+        # self.local_lower_bound, _ = self.lagrangian_solver.solve()
         self.actual_cost, _ = self.lagrangian_solver.compute_real_weight_length()
 
         # Store the MST edges from the Lagrangian solver
         self.mst_edges = self.lagrangian_solver.last_mst_edges
+
 
         self.is_meaningful = False  # Will be set in create_children()
 
@@ -48,6 +86,20 @@ class MSTNode(Node):
         # Add the branched edge to the set of branched edges
         new_branched_edges = self.branched_edges | {(u, v)}
 
+        # Combine inherited cuts and new cuts for children
+        all_cuts = self.active_cuts + self.new_cuts
+        # With:
+        capped_multipliers = {}
+        # Copy existing multipliers
+        for k, v in self.cut_multipliers.items():
+            capped_multipliers[k] = v
+                
+        # Add new cuts with initial multipliers
+        for i, cut in enumerate(self.new_cuts, start=len(self.active_cuts)):
+            capped_multipliers[i] = 1.0  # Initial multiplier for new cuts
+
+
+
         # Get the current lambda value from the Lagrangian solver
         current_lambda = self.lagrangian_solver.best_lambda if self.inherit_lambda else 0.1
         current_step_size = self.lagrangian_solver.step_size if self.inherit_step_size else 0.005
@@ -55,9 +107,22 @@ class MSTNode(Node):
         
         # Create child nodes
         fixed_child = MSTNode(self.edges, self.num_nodes, self.budget,
-                            self.fixed_edges | {(u, v)}, self.excluded_edges, new_branched_edges, initial_lambda=current_lambda, inherit_lambda=self.inherit_lambda, branching_rule=self.branching_rule, step_size=current_step_size, inherit_step_size=self.inherit_step_size  )
+                            self.fixed_edges | {(u, v)}, self.excluded_edges, new_branched_edges, initial_lambda=current_lambda, inherit_lambda=self.inherit_lambda, branching_rule=self.branching_rule, step_size=current_step_size, inherit_step_size=self.inherit_step_size ,
+        use_cover_cuts=self.use_cover_cuts,  # Pass the flag to child nodes
+        cut_frequency=self.cut_frequency,
+        node_cut_frequency=self.node_cut_frequency,
+        # parent_cover_cuts=self.lagrangian_solver.cover_cuts,
+        parent_cover_cuts=all_cuts,
+        parent_cover_multipliers=capped_multipliers)  # Pass capped multipliers)
+
         excluded_child = MSTNode(self.edges, self.num_nodes, self.budget,
-                                self.fixed_edges, self.excluded_edges | {(u, v)}, new_branched_edges, initial_lambda=current_lambda, inherit_lambda=self.inherit_lambda, branching_rule=self.branching_rule, step_size=current_step_size, inherit_step_size=self.inherit_step_size)
+                                self.fixed_edges, self.excluded_edges | {(u, v)}, new_branched_edges, initial_lambda=current_lambda, inherit_lambda=self.inherit_lambda, branching_rule=self.branching_rule, step_size=current_step_size, inherit_step_size=self.inherit_step_size,
+        use_cover_cuts=self.use_cover_cuts,  # Pass the flag to child nodes
+        cut_frequency=self.cut_frequency,
+        node_cut_frequency=self.node_cut_frequency,
+        # parent_cover_cuts=self.lagrangian_solver.cover_cuts,
+        parent_cover_cuts=all_cuts,
+        parent_cover_multipliers=capped_multipliers)  # Pass capped multipliers)
         return [fixed_child, excluded_child]
     
 
@@ -95,11 +160,6 @@ class MSTNode(Node):
             candidate_edges = [e for e in mst_edges if (e[0], e[1]) not in self.fixed_edges and
                           (e[0], e[1]) not in self.excluded_edges and
                           (e[0], e[1]) not in self.branched_edges]
-            # Get all candidate edges that are not fixed or excluded
-            # candidate_edges = [(u, v) for (u, v, w, l) in self.edges if (u, v) not in self.fixed_edges and
-            #                 (u, v) not in self.excluded_edges and 
-            #                 (v,u) not in self.fixed_edges and
-            #                 (v,u) not in self.excluded_edges]
 
             if not candidate_edges:
                 return None
@@ -162,15 +222,20 @@ class MSTNode(Node):
             raise ValueError(f"Unknown branching rule: {self.branching_rule}")
         return candidate_edges if candidate_edges else None
         
+
+    # Enhance to include cut penalties:
     def get_modified_weight(self, edge):
-        """
-        Get the modified weight of an edge using the current lambda value.
-        """
         u, v = edge
-        # Find the original weight and length of the edge
-        w, l = next((w, l) for x, y, w, l in self.edges if (x, y) == (u, v) or (y, x) == (u, v))
-        # Return the modified weight: w + lambda * l
-        return w + self.lagrangian_solver.best_lambda * l
+        w, l = next((w, l) for x, y, w, l in self.edges 
+                    if (x,y) == (u,v) or (y,x) == (u,v))
+        modified = w + self.lagrangian_solver.best_lambda * l
+        
+        # Add cut penalties
+        for cut_idx, cut in enumerate(self.active_cuts):
+            if (u,v) in cut or (v,u) in cut:
+                modified += self.cut_multipliers.get(cut_idx, 0)
+        
+        return modified
     
     def calculate_strong_branching_score(self, edge):
         """
@@ -341,3 +406,23 @@ class MSTNode(Node):
 
         return new_lower_bound
     
+    
+    def print_cut_info(self):
+        """Print information about active cuts in this node"""
+        print(f"\nNode Cut Status (Fixed: {self.fixed_edges}, Excluded: {self.excluded_edges})")
+        print("Active Cuts:")
+        for i, cut in enumerate(self.active_cuts):
+            mult = self.cut_multipliers.get(i, 0)
+            print(f"Cut {i}: {cut} (Multiplier: {mult:.3f})")
+        
+        print("\nInherited Cuts Breakdown:")
+        inherited_from_parent = 0
+        new_generated = 0
+        for cut in self.lagrangian_solver.cover_cuts:
+            if cut in self.active_cuts:
+                inherited_from_parent += 1
+            else:
+                new_generated += 1
+        print(f"Total cuts: {len(self.lagrangian_solver.cover_cuts)}")
+        print(f" - Inherited: {inherited_from_parent}")
+        print(f" - New: {new_generated}")
