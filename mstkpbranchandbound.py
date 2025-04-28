@@ -32,7 +32,7 @@ class MSTNode(Node):
         self.lagrangian_solver = LagrangianMST(
             filtered_edges, num_nodes, budget, self.fixed_edges, self.excluded_edges,
             initial_lambda=self.initial_lambda, step_size=self.step_size,
-            max_iter=50, p=0.95,
+            max_iter=200, p=0.95,
             use_cover_cuts=self.use_cover_cuts,
             cut_frequency=self.cut_frequency,
             use_bisection=self.use_bisection
