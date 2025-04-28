@@ -2,125 +2,171 @@ import networkx as nx
 import numpy as np
 import random
 from time import time
+from collections import defaultdict, OrderedDict
+
+class UnionFind:
+    def __init__(self, n):
+        self.parent = list(range(n))
+        self.rank = [0] * n
+        self.size = [1] * n  # Added for size-based union
+    
+    def find(self, u):
+        if self.parent[u] != u:
+            self.parent[u] = self.find(self.parent[u])  # Full path compression
+        return self.parent[u]
+    
+    def union(self, u, v):
+        pu, pv = self.find(u), self.find(v)
+        if pu == pv:
+            return False
+        if self.size[pu] < self.size[pv]:
+            pu, pv = pv, pu
+        self.parent[pv] = pu
+        self.size[pu] += self.size[pv]
+        self.rank[pu] = max(self.rank[pu], self.rank[pv] + 1)
+        return True
+    
+    def connected(self, u, v):
+        return self.find(u) == self.find(v)
+    
+    def count_components(self):
+        return len(set(self.find(i) for i in range(len(self.parent))))
+
+class LRUCache:
+    """A simple LRU cache implementation using OrderedDict."""
+    def __init__(self, capacity):
+        self.cache = OrderedDict()
+        self.capacity = capacity
+    
+    def get(self, key):
+        if key not in self.cache:
+            return None
+        self.cache.move_to_end(key)
+        return self.cache[key]
+    
+    def put(self, key, value):
+        self.cache[key] = value
+        self.cache.move_to_end(key)
+        if len(self.cache) > self.capacity:
+            self.cache.popitem(last=False)
 
 class LagrangianMST:
-
     total_compute_time = 0
 
-    def __init__(self, edges, num_nodes, budget, fixed_edges=None, excluded_edges=None, initial_lambda=0.1, step_size=0.005, max_iter=50, p=0.95, use_cover_cuts=False, cut_frequency=5 ):
+    def __init__(self, edges, num_nodes, budget, fixed_edges=None, excluded_edges=None, 
+                 initial_lambda=0.1, step_size=0.005, max_iter=300, p=0.95, 
+                 use_cover_cuts=False, cut_frequency=5, use_bisection=False):
         start_time = time()
         self.edges = edges
         self.num_nodes = num_nodes
         self.budget = budget
-        self.fixed_edges = fixed_edges if fixed_edges is not None else set()
-        self.excluded_edges = excluded_edges if excluded_edges is not None else set()
+        self.fixed_edges = set(fixed_edges) if fixed_edges else set()
+        self.excluded_edges = set(excluded_edges) if excluded_edges else set()
+        
         self.lmbda = initial_lambda
         self.step_size = step_size
-        self.p = p  # Geometric decay factor for step size
+        self.p = p
         self.max_iter = max_iter
+        self.use_bisection = use_bisection
+
         self.best_lower_bound = float('-inf')
         self.best_upper_bound = float('inf')
         self.last_mst_edges = []
-        end_time = time()
-        self.primal_solutions = []  # Store primal solutions (MSTs)
-        self.step_sizes = []  # Store step sizes (λₖ)
-        self.best_lambda = initial_lambda
-        self.best_mst_edges = None  # Track the MST edges that give the best lower bound
+        self.primal_solutions = []
+        self.step_sizes = []
+        self.best_lambda = self.lmbda
+        self.best_mst_edges = None
         self.best_cost = 0
 
         self.use_cover_cuts = use_cover_cuts
         self.cut_frequency = cut_frequency
-        self.cover_cuts = []
-        self.cover_cut_multipliers = {}
+        self.best_cuts = []
+        self.best_cut_multipliers = {}
 
-        # #newww 3 line
-        # self.edge_length = {(u,v): l for u,v,w,l in edges}  # Cache lengths
-        # self.trust_region = 1.0  # For multiplier stabilization
-        # self.cut_pool = []       # Global cut storage across nodes
+        # Optimized edge attribute caching
+        self.edge_indices = {(min(u, v), max(u, v)): i for i, (u, v, _, _) in enumerate(edges)}
+        self.edge_weights = np.array([w for _, _, w, _ in edges], dtype=float)
+        self.edge_lengths = np.array([l for _, _, _, l in edges], dtype=float)
+        self.modified_weights = np.array([w for _, _, w, _ in edges], dtype=float)  # Initial weights
+        self.edge_list = [(u, v) for u, v, _, _ in edges]  # Store edge (u, v) pairs
+        self.fixed_edge_indices = {self.edge_indices.get((min(u, v), max(u, v))) 
+                                  for u, v in self.fixed_edges if (min(u, v), max(u, v)) in self.edge_indices}
+        self.excluded_edge_indices = {self.edge_indices.get((min(u, v), max(u, v))) 
+                                     for u, v in self.excluded_edges if (min(u, v), max(u, v)) in self.edge_indices}
 
+        # Cache for MST results using LRU
+        self.mst_cache = LRUCache(capacity=100)
+        self.cache_tolerance = 1e-6  # Tolerance for cache key
+
+        # Incremental update support
+        self.last_modified_weights = None
+        self.last_mst_edges = None
+
+        # Graph for fallback or initialization
+        self.graph = nx.Graph()
+        self.graph.add_edges_from([(u, v) for u, v, _, _ in edges])
+        self.edge_attributes = {(min(u, v), max(u, v)): (w, l) for u, v, w, l in edges}
+
+        end_time = time()
         LagrangianMST.total_compute_time += end_time - start_time
 
-
     def generate_cover_cuts(self, mst_edges):
+        # Unchanged for brevity; assumes mst_edges is a list of (u, v) tuples
         if not mst_edges:
             return []
 
-        # Calculate total length of current MST
-        total_length = sum(next(l for x,y,w,l in self.edges 
-                            if (x,y)==(u,v) or (y,x)==(u,v)) 
-                        for u,v in mst_edges)
+        edge_data = self.edge_attributes
+        total_length = sum(edge_data[(min(u, v), max(u, v))][1] for u, v in mst_edges)
         
-        # Only generate cuts if current solution violates budget
         if total_length <= self.budget:
             return []
-        
-            # Filter edges to only consider active edges (not fixed or excluded)
-        active_edges = [(u,v) for u,v in mst_edges 
-                   if (u,v) not in self.excluded_edges and 
-                      (v,u) not in self.excluded_edges and
-                      (u,v) not in self.fixed_edges and 
-                      (v,u) not in self.fixed_edges]
 
-        # 1. Identify the most problematic edges (main contributors to budget violation)
-        edge_contributions = []
-        for u, v in active_edges:
-            l = next(l for x,y,w,l in self.edges 
-                    if (x,y)==(u,v) or (y,x)==(u,v))
-            w = next(w for x,y,w,l in self.edges 
-                    if (x,y)==(u,v) or (y,x)==(u,v))
-            # Score based on both length and weight-to-length ratio
-            score = l * (1 + (w/l if l > 0 else 0))
-            edge_contributions.append(((u,v), l, w, score))
-        
-        # Sort edges by their contribution score (descending)
-        edge_contributions.sort(key=lambda x: -x[3])
+        fixed_edges_length = sum(
+            edge_data[(min(u, v), max(u, v))][1]
+            for u, v in self.fixed_edges
+        )
+        remaining_budget = self.budget - fixed_edges_length
+
+        active_edges = [
+            (u, v) for u, v in mst_edges
+            if (u, v) not in self.fixed_edges and (v, u) not in self.fixed_edges
+        ]
 
         cuts = []
-        
-        # 2. Generate cuts based on edge combinations
-        # Strategy 1: Pairs of high-contributing edges
-        for i in range(min(5, len(edge_contributions))):
-            for j in range(i+1, min(i+4, len(edge_contributions))):
-                e1, l1, w1, _ = edge_contributions[i]
-                e2, l2, w2, _ = edge_contributions[j]
-                if l1 + l2 > self.budget:
-                    cuts.append({e1, e2})
-        
-        # Strategy 2: Critical triplets
-        for i in range(min(3, len(edge_contributions))):
-            for j in range(i+1, min(i+3, len(edge_contributions))):
-                for k in range(j+1, min(j+3, len(edge_contributions))):
-                    e1, l1, w1, _ = edge_contributions[i]
-                    e2, l2, w2, _ = edge_contributions[j]
-                    e3, l3, w3, _ = edge_contributions[k]
-                    if l1 + l2 + l3 > self.budget:
-                        cuts.append({e1, e2, e3})
-        
-        # Strategy 3: Path-based cuts (identify long paths in the MST)
+        for i, (u1, v1) in enumerate(active_edges):
+            l1 = edge_data[(min(u1, v1), max(u1, v1))][1]
+            for j, (u2, v2) in enumerate(active_edges[i+1:], start=i+1):
+                l2 = edge_data[(min(u2, v2), max(u2, v2))][1]
+                if l1 + l2 > remaining_budget:
+                    cuts.append({(u1, v1), (u2, v2)})
+
+        for i, (u1, v1) in enumerate(active_edges):
+            l1 = edge_data[(min(u1, v1), max(u1, v1))][1]
+            for j, (u2, v2) in enumerate(active_edges[i+1:], start=i+1):
+                l2 = edge_data[(min(u2, v2), max(u2, v2))][1]
+                for k, (u3, v3) in enumerate(active_edges[j+1:], start=j+1):
+                    l3 = edge_data[(min(u3, v3), max(u3, v3))][1]
+                    if l1 + l2 + l3 > remaining_budget:
+                        cuts.append({(u1, v1), (u2, v2), (u3, v3)})
+
         if len(mst_edges) >= 3:
             G = nx.Graph(mst_edges)
             degrees = dict(G.degree())
-            # Find high-degree nodes as potential cut points
             hub_nodes = [n for n in degrees if degrees[n] > 2]
-            for node in hub_nodes[:3]:  # Limit to top 3 hubs
+            for node in hub_nodes:
                 neighbors = list(G.neighbors(node))
-                # Create cuts from hub-spoke combinations
                 for i in range(len(neighbors)):
-                    for j in range(i+1, len(neighbors)):
+                    for j in range(i + 1, len(neighbors)):
                         e1 = (node, neighbors[i])
                         e2 = (node, neighbors[j])
-                        l1 = next(l for x,y,w,l in self.edges 
-                                if (x,y)==e1 or (y,x)==e1)
-                        l2 = next(l for x,y,w,l in self.edges 
-                                if (x,y)==e2 or (y,x)==e2)
-                        if l1 + l2 > self.budget:
+                        l1 = edge_data.get((min(e1[0], e1[1]), max(e1[0], e1[1])), (0, 0))[1]
+                        l2 = edge_data.get((min(e2[0], e2[1]), max(e2[0], e2[1])), (0, 0))[1]
+                        if l1 + l2 > remaining_budget:
                             cuts.append({e1, e2})
-        
-        # 3. Add the most obvious cut - the entire MST if it violates budget
+
         if total_length > self.budget and len(mst_edges) >= 2:
             cuts.append(set(mst_edges))
-        
-        # Remove duplicate cuts
+
         unique_cuts = []
         seen = set()
         for cut in cuts:
@@ -129,275 +175,298 @@ class LagrangianMST:
                 seen.add(frozen)
                 unique_cuts.append(cut)
         
-        return unique_cuts[:10]  # Return at most 10 strongest cuts
+        return unique_cuts[:10]
 
+    def compute_modified_weights(self):
+        """Compute modified weights for all edges based on current lambda and cut multipliers."""
+        modified_weights = self.edge_weights.copy()
+        modified_weights += self.lmbda * self.edge_lengths
+        
+        if self.use_cover_cuts:
+            for cut_idx, cut in enumerate(self.best_cuts):
+                multiplier = self.best_cut_multipliers.get(cut_idx, 0)
+                for u, v in cut:
+                    edge_key = (min(u, v), max(u, v))
+                    if edge_key in self.edge_indices:
+                        edge_idx = self.edge_indices[edge_key]
+                        modified_weights[edge_idx] += multiplier
+        
+        return modified_weights
 
-    
-    def compute_mst(self, modified_edges):
-        # Create a graph with the modified edges
-        G = nx.Graph()
-        G.add_weighted_edges_from(modified_edges)
+    def custom_kruskal(self, modified_weights):
+        """Custom Kruskal's algorithm incorporating fixed and excluded edges."""
+        uf = UnionFind(self.num_nodes)
+        mst_edges = []
+        mst_cost = 0.0
 
-        # Ensure fixed edges are included in the graph
-        for u, v in self.fixed_edges:
-            # Find the corresponding edge in the modified edges
-            for edge in modified_edges:
-                if (edge[0], edge[1]) == (u, v) or (edge[0], edge[1]) == (v, u):
-                    G.add_edge(u, v, weight=edge[2])
-                    break
+        # Step 1: Include fixed edges
+        for edge_idx in self.fixed_edge_indices:
+            u, v = self.edge_list[edge_idx]
+            if uf.union(u, v):
+                mst_edges.append((u, v))
+                mst_cost += modified_weights[edge_idx]
+            else:
+                # Fixed edges form a cycle, infeasible
+                return float('inf'), float('inf'), []
 
-        # Exclude edges that are in excluded_edges
-        for u, v in self.excluded_edges:
-            if G.has_edge(u, v):
-                G.remove_edge(u, v)
+        # Step 2: Sort edges by modified weights (excluding fixed/excluded)
+        edge_indices = [i for i in range(len(self.edges)) 
+                        if i not in self.fixed_edge_indices and i not in self.excluded_edge_indices]
+        sorted_edges = sorted(edge_indices, key=lambda i: modified_weights[i])
 
-        # If there are fixed edges, check if they form a cycle
-        if self.fixed_edges:
-            fixed_graph = nx.Graph()
-            fixed_graph.add_edges_from(self.fixed_edges)
-            if not nx.is_forest(fixed_graph):  # Check if the fixed edges form a cycle
-                return float('inf'), float('inf'), []  # Prune this node (infeasible)
+        # Step 3: Add edges to MST
+        for edge_idx in sorted_edges:
+            u, v = self.edge_list[edge_idx]
+            if uf.union(u, v):
+                mst_edges.append((u, v))
+                mst_cost += modified_weights[edge_idx]
 
-        all_edges = sorted(G.edges(data=True), key=lambda x: x[2]['weight'])
+        # Step 4: Verify MST
+        if uf.count_components() > 1 or len(set(u for u, _ in mst_edges) | set(v for _, v in mst_edges)) < self.num_nodes:
+            return float('inf'), float('inf'), []
 
-        # Initialize the MST with the fixed edges
-        mst_edges = list(self.fixed_edges)
-        mst_graph = nx.Graph()
-        mst_graph.add_edges_from(self.fixed_edges)
-
-        # Use a data structure to detect cycles
-        parent = {node: node for node in G.nodes()}
-
-        def find(u):
-            while parent[u] != u:
-                parent[u] = parent[parent[u]]  
-                u = parent[u]
-            return u
-
-        def union(u, v):
-            u_root = find(u)
-            v_root = find(v)
-            if u_root == v_root:
-                return False  # Cycle detected
-            parent[v_root] = u_root
-            return True
-
-        # Add the fixed edges to the Union-Find structure
-        for u, v in self.fixed_edges:
-            union(u, v)
-
-        # Add the remaining edges to the MST
-        for u, v, data in all_edges:
-            if (u, v) not in self.fixed_edges and (v, u) not in self.fixed_edges:
-                if union(u, v):
-                    mst_edges.append((u, v))
-                    mst_graph.add_edge(u, v, weight=data['weight'])
-
-        # Check if the MST is connected and includes all nodes
-        if not nx.is_connected(mst_graph) or len(mst_graph.nodes) < self.num_nodes:
-            return float('inf'), float('inf'), []  # Prune this node (infeasible)
-
-        # Calculate the total cost and length of the MST
-        mst_cost = sum(G[u][v]['weight'] for u, v in mst_edges)
-        mst_length = sum(next(l for x, y, w, l in self.edges if (x, y) == (u, v) or (y, x) == (u, v)) for u, v in mst_edges)
+        # Step 5: Compute real length
+        mst_length = sum(self.edge_lengths[self.edge_indices[(min(u, v), max(u, v))]] 
+                         for u, v in mst_edges)
 
         return mst_cost, mst_length, mst_edges
 
+    def incremental_kruskal(self, prev_weights, prev_mst_edges, current_weights):
+        """Incrementally update the MST based on weight changes."""
+        uf = UnionFind(self.num_nodes)
+        mst_edges = []
+        mst_cost = 0.0
 
-    def solve(self, inherited_cuts=None, inherited_multipliers=None):
-        """
-        Solve the Lagrangian Relaxation problem using subgradient optimization.
-        inherited_cuts: Cuts from parent node that should be relaxed in this node
-        inherited_multipliers: Corresponding multipliers for inherited cuts
-        Returns: (best_lower_bound, best_upper_bound, new_cuts)
-        """
+        # Step 1: Include fixed edges
+        for edge_idx in self.fixed_edge_indices:
+            u, v = self.edge_list[edge_idx]
+            if uf.union(u, v):
+                mst_edges.append((u, v))
+                mst_cost += current_weights[edge_idx]
+            else:
+                return float('inf'), float('inf'), []
+
+        # Step 2: Identify changed edges
+        weight_changes = current_weights - prev_weights
+        changed_indices = np.where(np.abs(weight_changes) > self.cache_tolerance)[0]
+        changed_edges = set(changed_indices)
+
+        # Step 3: Re-evaluate MST edges
+        prev_mst_indices = {self.edge_indices[(min(u, v), max(u, v))] for u, v in prev_mst_edges
+                            if self.edge_indices[(min(u, v), max(u, v))] not in self.fixed_edge_indices}
+        candidate_indices = (prev_mst_indices | changed_edges) - self.excluded_edge_indices - self.fixed_edge_indices
+        sorted_edges = sorted(candidate_indices, key=lambda i: current_weights[i])
+
+        # Step 4: Add edges to MST
+        for edge_idx in sorted_edges:
+            u, v = self.edge_list[edge_idx]
+            if uf.union(u, v):
+                mst_edges.append((u, v))
+                mst_cost += current_weights[edge_idx]
+
+        # Step 5: Verify MST
+        if uf.count_components() > 1 or len(set(u for u, _ in mst_edges) | set(v for _, v in mst_edges)) < self.num_nodes:
+            return float('inf'), float('inf'), []
+
+        # Step 6: Compute real length
+        mst_length = sum(self.edge_lengths[self.edge_indices[(min(u, v), max(u, v))]] 
+                         for u, v in mst_edges)
+
+        return mst_cost, mst_length, mst_edges
+
+    def compute_mst(self, modified_edges=None):
+        """Compute MST using custom Kruskal's algorithm with caching."""
         start_time = time()
         
-        # Initialize with inherited cuts if provided
-        if inherited_cuts is not None:
-            self.cover_cuts = inherited_cuts
-            self.cover_cut_multipliers = inherited_multipliers.copy() if inherited_multipliers else {}
+        # If modified_edges is provided, compute weights from scratch
+        if modified_edges is not None:
+            weights = np.array([w for _, _, w in modified_edges], dtype=float)
+        else:
+            weights = self.compute_modified_weights()
+
+        # Create cache key with tolerance
+        weights_key = tuple(np.round(weights / self.cache_tolerance).astype(int))
+
+        # Check cache
+        cached_result = self.mst_cache.get(weights_key)
+        if cached_result is not None:
+            end_time = time()
+            LagrangianMST.total_compute_time += end_time - start_time
+            return cached_result
+
+        # Compute MST
+        mst_cost, mst_length, mst_edges = self.custom_kruskal(weights)
+
+        # Cache result
+        self.mst_cache.put(weights_key, (mst_cost, mst_length, mst_edges))
+
+        end_time = time()
+        LagrangianMST.total_compute_time += end_time - start_time
+        return mst_cost, mst_length, mst_edges
+
+    def compute_mst_incremental(self, prev_weights, prev_mst_edges):
+        """Compute MST incrementally by updating only changed weights."""
+        current_weights = self.compute_modified_weights()
+        weight_changes = current_weights - prev_weights
+
+        # If no significant changes, reuse previous MST
+        if np.all(np.abs(weight_changes) < 1e-4):  # Increased threshold
+            mst_cost = sum(current_weights[self.edge_indices[(min(u, v), max(u, v))]] 
+                           for u, v in prev_mst_edges)
+            mst_length = sum(self.edge_lengths[self.edge_indices[(min(u, v), max(u, v))]] 
+                             for u, v in prev_mst_edges)
+            return mst_cost, mst_length, prev_mst_edges
+
+        # Use incremental Kruskal for small changes
+        return self.incremental_kruskal(prev_weights, prev_mst_edges, current_weights)
+
+    def solve(self, inherited_cuts=None, inherited_multipliers=None):
+        start_time = time()
         
+        if inherited_cuts is not None:
+            self.best_cuts = inherited_cuts
+            self.best_cut_multipliers = inherited_multipliers.copy() if inherited_multipliers else {}
+        
+        prev_weights = None
+        prev_mst_edges = None
+
         for iter_num in range(self.max_iter):
-            # Generate cover cuts from best integer solution (if enabled)
-            # Note: These new cuts won't be relaxed in current node, only passed to children
-            if (self.use_cover_cuts and 
-                self.best_mst_edges and 
-                iter_num % self.cut_frequency == 0):
-                
-                new_cuts = self.generate_cover_cuts(self.best_mst_edges)
-                for cut in new_cuts:
-                    if not any(cut == existing for existing in self.cover_cuts):
-                        cut_idx = len(self.cover_cuts)
-                        self.cover_cuts.append(cut)
-                        self.cover_cut_multipliers[cut_idx] = 1.0  # Initialize new cut multiplier
+            # Use incremental MST computation if possible
+            if prev_weights is not None and prev_mst_edges is not None:
+                mst_cost, mst_length, mst_edges = self.compute_mst_incremental(prev_weights, prev_mst_edges)
+            else:
+                mst_cost, mst_length, mst_edges = self.compute_mst()
 
-            # Modify edge weights with lambda and cuts
-            modified_edges = []
-            for u, v, w, l in self.edges:
-                modified_w = w + self.lmbda * l
-                for cut_idx, cut in enumerate(self.cover_cuts):
-                    if (u, v) in cut or (v, u) in cut:
-                        modified_w += self.cover_cut_multipliers.get(cut_idx, 0)
-                modified_edges.append((u, v, modified_w))
-
-            # Compute MST with modified costs
-            mst_cost, mst_length, mst_edges = self.compute_mst(modified_edges)
             self.last_mst_edges = mst_edges
+            prev_mst_edges = mst_edges
+            prev_weights = self.compute_modified_weights()
 
-            # Store primal solution and feasibility
             is_feasible = mst_length <= self.budget
             self.primal_solutions.append((mst_edges, is_feasible))
             self.step_sizes.append(self.step_size)
 
-            # Calculate cover cut penalty terms
             cover_cut_penalty = sum(
                 multiplier * (len(cut) - 1)
-                for cut_idx, cut in enumerate(self.cover_cuts)
-                for multiplier in [self.cover_cut_multipliers.get(cut_idx, 0)]
+                for cut_idx, cut in enumerate(self.best_cuts)
+                for multiplier in [self.best_cut_multipliers.get(cut_idx, 0)]
             )
 
-            # Compute Lagrangian bound
             lagrangian_bound = mst_cost - self.lmbda * self.budget - cover_cut_penalty
 
-            # Update best lower bound
             if lagrangian_bound > self.best_lower_bound:
                 self.best_lower_bound = lagrangian_bound
                 self.best_lambda = self.lmbda
                 self.best_mst_edges = mst_edges
                 self.best_cost = mst_cost
+                if self.use_cover_cuts and self.best_mst_edges and iter_num % self.cut_frequency == 0:
+                    new_cuts = self.generate_cover_cuts(self.best_mst_edges)
+                    for cut in new_cuts:
+                        if not any(cut == existing for existing in self.best_cuts):
+                            cut_idx = len(self.best_cuts)
+                            self.best_cuts.append(cut)
+                            self.best_cut_multipliers[cut_idx] = 1.0
 
-            # Update best upper bound if feasible
-            if is_feasible and nx.is_connected(nx.Graph(mst_edges)):
-                if mst_cost < self.best_upper_bound:
-                    self.best_upper_bound = mst_cost
-                    # When we find a better feasible solution, we can generate additional cuts
-                    if self.use_cover_cuts:
-                        new_cuts = self.generate_cover_cuts(mst_edges)
-                        for cut in new_cuts:
-                            if not any(cut == existing for existing in self.cover_cuts):
-                                cut_idx = len(self.cover_cuts)
-                                self.cover_cuts.append(cut)
-                                self.cover_cut_multipliers[cut_idx] = 1.0
+            if is_feasible:
+                uf = UnionFind(self.num_nodes)
+                for u, v in mst_edges:
+                    uf.union(u, v)
+                if uf.count_components() == 1:
+                    if mst_cost < self.best_upper_bound:
+                        self.best_upper_bound = mst_cost
+                        if self.use_cover_cuts:
+                            new_cuts = self.generate_cover_cuts(mst_edges)
+                            for cut in new_cuts:
+                                if not any(cut == existing for existing in self.best_cuts):
+                                    cut_idx = len(self.best_cuts)
+                                    self.best_cuts.append(cut)
+                                    self.best_cut_multipliers[cut_idx] = 1.0
 
-            # Compute subgradients
-            # 1. Main knapsack constraint subgradient
             knapsack_subgradient = -(self.budget - mst_length)
-            
-            # 2. Cover cut subgradients (vector of violations)
-            cut_subgradients = []
-            for cut_idx, cut in enumerate(self.cover_cuts):
-                # Count how many edges from this cut are in the MST
-                edges_in_mst = sum(1 for e in mst_edges if e in cut or (e[1], e[0]) in cut)
-                violation = edges_in_mst - (len(cut) - 1)
-                cut_subgradients.append(violation)
-            
-            # Check convergence for all constraints
+            cut_subgradients = [
+                sum(1 for e in mst_edges if e in cut or (e[1], e[0]) in cut) - (len(cut) - 1)
+                for cut in self.best_cuts
+            ]
+
             converged = (abs(knapsack_subgradient) < 1e-5 and 
-                        all(abs(g) < 1e-5 for g in cut_subgradients))
+                         all(abs(g) < 1e-5 for g in cut_subgradients))
             duality_gap = self.best_upper_bound - self.best_lower_bound
             
             if converged or abs(duality_gap) < 1e-5:
-                print("Converged!")
+                print(f"Converged! (Reason: {'Converged' if converged else 'Small duality gap'})")
                 break
 
-            # Adaptive step size update
-            self.step_size *= self.p  # Geometric decay
+            self.step_size *= self.p
+            self.lmbda = max(self.lmbda + self.step_size * knapsack_subgradient, 1e-2)
+            if self.lmbda < 1e-6 and abs(knapsack_subgradient) > 1.0:
+                self.lmbda = 0.1
 
-
-            # Update main lambda (knapsack constraint)
-            self.lmbda = max(0, self.lmbda + self.step_size * knapsack_subgradient)
-            
-            # Update cut multipliers (vector of multipliers)
             for cut_idx, violation in enumerate(cut_subgradients):
-                current_mult = self.cover_cut_multipliers.get(cut_idx, 0)
-                new_mult = max(0, current_mult + self.step_size * violation)
-                self.cover_cut_multipliers[cut_idx] = min(new_mult, 10.0)  # Cap at 10.0
-            
+                current_mult = self.best_cut_multipliers.get(cut_idx, 0)
+                new_mult = max(1e-4, current_mult + self.step_size * violation)
+                if new_mult < 1e-6 and abs(violation) > 1.0:
+                    new_mult = 0.1
+                self.best_cut_multipliers[cut_idx] = min(new_mult, 10.0)
 
         end_time = time()
         LagrangianMST.total_compute_time += end_time - start_time
-        print("transfered_cut", self.cover_cuts)
 
-        # # Generate new cuts from best solution (not relaxed in this node)
         new_cuts = []
         if self.use_cover_cuts and self.best_mst_edges:
             new_cuts = self.generate_cover_cuts(self.best_mst_edges)
-            # Filter out cuts that are already active
-            new_cuts = [cut for cut in new_cuts if not any(cut == existing for existing in self.cover_cuts)]
-        
-
+            new_cuts = [cut for cut in new_cuts if not any(cut == existing for existing in self.best_cuts)]
 
         return self.best_lower_bound, self.best_upper_bound, new_cuts
-    
+
+    def compute_mst_for_lambda(self, lambda_val):
+        """Compute MST for a specific lambda value."""
+        modified_edges = []
+        for i, (u, v) in enumerate(self.edge_list):
+            modified_w = self.edge_weights[i] + lambda_val * self.edge_lengths[i]
+            for cut_idx, cut in enumerate(self.best_cuts):
+                if (u, v) in cut or (v, u) in cut:
+                    modified_w += self.best_cut_multipliers.get(cut_idx, 0)
+            modified_edges.append((u, v, modified_w))
+        return self.compute_mst(modified_edges)
+
     def compute_shor_primal_solution(self):
-        """
-        Compute the Shor primal solution as a weighted average of all MSTs found during optimization.
-        Returns a dictionary mapping edges to their average weights.
-        """
         if not self.primal_solutions:
             return None
-            
-        # Initialize edge weights
         edge_weights = {}
         total_weight = 0.0
-        
-        # Sum up all weights
-        for i, mst_edges in enumerate(self.primal_solutions):
-            weight = self.step_sizes[i]  # Use step size as weight (λₖ)
+        for i, (mst_edges, _) in enumerate(self.primal_solutions):
+            weight = self.step_sizes[i]
             total_weight += weight
             for edge in mst_edges:
-                if edge in edge_weights:
-                    edge_weights[edge] += weight
-                else:
-                    edge_weights[edge] = weight
-        
-        # Normalize by total weight
+                edge_weights[edge] = edge_weights.get(edge, 0) + weight
         if total_weight > 0:
             for edge in edge_weights:
                 edge_weights[edge] /= total_weight
-        
         return edge_weights
 
-
     def compute_dantzig_wolfe_solution(self):
-        """Compute the LP-optimal solution via convex combination of two MSTs"""
         if len(self.primal_solutions) < 2:
             return None
-
-        # Get most recent feasible/infeasible pair
         feasible = [mst for mst, feasible in self.primal_solutions if feasible]
         infeasible = [mst for mst, feasible in self.primal_solutions if not feasible]
-        
         if not feasible or not infeasible:
             return None
-
         mst_feas = feasible[-1]
         mst_infeas = infeasible[-1]
-
-        # Calculate total lengths
         def get_length(mst):
-            return sum(l for u,v,w,l in self.edges 
-                    if (u,v) in mst or (v,u) in mst)
-
+            return sum(self.edge_lengths[self.edge_indices[(min(u, v), max(u, v))]] 
+                       for u, v in mst)
         len_feas = get_length(mst_feas)
         len_infeas = get_length(mst_infeas)
-
-        # Compute convex combination weight α
         try:
             α = (self.budget - len_feas) / (len_infeas - len_feas)
-            α = max(0, min(1, α))  # Clamp to [0,1]
+            α = max(0, min(1, α))
         except ZeroDivisionError:
             return None
-
-        # Build combined solution
         combined = {}
         all_edges = set(mst_feas) | set(mst_infeas)
-        
         for e in all_edges:
-            in_feas = e in mst_feas or (e[1],e[0]) in mst_feas
-            in_infeas = e in mst_infeas or (e[1],e[0]) in mst_infeas
-            
+            in_feas = e in mst_feas or (e[1], e[0]) in mst_feas
+            in_infeas = e in mst_infeas or (e[1], e[0]) in mst_infeas
             if in_feas and in_infeas:
                 combined[e] = 1.0
             elif in_infeas:
@@ -406,14 +475,11 @@ class LagrangianMST:
                 combined[e] = 1 - α
             else:
                 combined[e] = 0.0
-
         return combined
 
     def compute_real_weight_length(self):
-        """
-        Compute the real total weight and length of the last MST found.
-        """
-        real_weight = sum(next(w for x, y, w, l in self.edges if (x, y) == (u, v) or (y, x) == (u, v)) for u, v in self.last_mst_edges)
-        real_length = sum(next(l for x, y, w, l in self.edges if (x, y) == (u, v) or (y, x) == (u, v)) for u, v in self.last_mst_edges)
-
+        real_weight = sum(self.edge_weights[self.edge_indices[(min(u, v), max(u, v))]] 
+                          for u, v in self.last_mst_edges)
+        real_length = sum(self.edge_lengths[self.edge_indices[(min(u, v), max(u, v))]] 
+                          for u, v in self.last_mst_edges)
         return real_weight, real_length

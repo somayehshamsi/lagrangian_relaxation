@@ -69,6 +69,7 @@ class MSTKPInstance:
 
         assert 0 <= CONVEX_BUDGET_FACTOR <= 1
         self.budget = int(CONVEX_BUDGET_FACTOR * total_tw_weight + (1 - CONVEX_BUDGET_FACTOR) * total_tl_weight)
+        # self.budget = self.num_nodes * 20 -20
         assert total_tw_weight <= self.budget <= total_tl_weight
 
     def print_all_edges(self):
@@ -100,4 +101,7 @@ if __name__ == "__main__":
     print(f"Total Tl weight: {sum([d['weight'] for _, _, d in instance.tl.edges(data=True)])}")
     print(f"Total Tw length: {sum([d['length'] for _, _, d in instance.tw.edges(data=True)])}")
     print(f"Total Tl length: {sum([d['length'] for _, _, d in instance.tl.edges(data=True)])}")
+
+
+
 
