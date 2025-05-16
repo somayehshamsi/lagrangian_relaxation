@@ -1,4 +1,3 @@
-
 import random
 import networkx as nx
 import matplotlib.pyplot as plt
@@ -101,7 +100,4 @@ if __name__ == "__main__":
     print(f"Total Tl weight: {sum([d['weight'] for _, _, d in instance.tl.edges(data=True)])}")
     print(f"Total Tw length: {sum([d['length'] for _, _, d in instance.tw.edges(data=True)])}")
     print(f"Total Tl length: {sum([d['length'] for _, _, d in instance.tl.edges(data=True)])}")
-
-
-
 
